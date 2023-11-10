@@ -23,7 +23,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'subpub = xxx_pkg.xxx:main'
+            'xxx = xxx_pkg.xxx:main'
         ],
     },
 )
