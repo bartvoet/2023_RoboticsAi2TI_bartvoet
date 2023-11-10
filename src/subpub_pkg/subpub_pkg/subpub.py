@@ -16,7 +16,11 @@ class Subpub(Node):
         # create the publisher object
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
         # create the subscriber object
-        self.subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE))
+        self.subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, 
+                                                   QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+        
+        #self.create_subscription(LaserScan,"/scan",self.laser_callback,QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT))
+
         # define the timer period for 0.5 seconds
         self.timer_period = 0.5
         # define the variable to save the received info
@@ -27,8 +31,7 @@ class Subpub(Node):
 
     def laser_callback(self,msg):
         # Save the frontal laser scan info at 0°
-        self.laser_forward = msg.ranges[359] 
-        
+        self.laser_forward = msg.ranges[-1]
         
     def motion(self):
         # print the data
