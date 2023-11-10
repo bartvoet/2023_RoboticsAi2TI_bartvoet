@@ -23,7 +23,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'subpub = patrol_pkg.patrol:main'
+            'patrol = patrol_pkg.patrol:main'
         ],
     },
 )
