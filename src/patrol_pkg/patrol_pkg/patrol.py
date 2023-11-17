@@ -6,6 +6,9 @@ from geometry_msgs.msg import Twist
 # import the LaserScan module from sensor_msgs interface
 from sensor_msgs.msg import LaserScan
 from rclpy.qos import ReliabilityPolicy, QoSProfile
+from math import radians
+
+NORMAL_SPEED = 0.05
 
 class  Patrol(Node):
 
@@ -35,43 +38,30 @@ class  Patrol(Node):
         self.laser_forward = msg.ranges[-1]
         self.laser_frontLeft = min(msg.ranges[0:boundary])
         self.laser_frontRight = min(msg.ranges[-boundary:])
-        
+
+    def turn_degrees(self, degrees):
+        #return 1.0
+        return radians(degrees) * (1 / self.timer_period)
+
+    def log(self, msg):
+        self.get_logger().info(msg)
+
     def motion(self):
         # print the data
-        self.get_logger().info('Forward: "%s"' % str(self.laser_forward))
+        self.log('Forward: "%s"' % str(self.laser_forward))
         
-        # self.cmd.angular.z = 0.0
-        # self.cmd.linear.x = 0.0
-
-        # if (self.laser_frontLeft < 0.5) :
-        #     self.get_logger().info('Object front left: "%s"' % str(self.laser_frontLeft))
-        #     self.cmd.angular.z = -1.0
-        # elif (self.laser_frontRight < 0.5) :
-        #     self.get_logger().info('Object front right: "%s"' % str(self.laser_frontRight))
-        #     self.cmd.angular.z = 1.0
-        # else :
-        #     self.cmd.linear.x = 1.0
-
-               # print the data
-        self.get_logger().info('I receive: "%s"' % str(self.laser_forward))
         # Logic of move
         if self.laser_forward > 5:
-            self.cmd.linear.x = 0.2
+            self.cmd.linear.x = NORMAL_SPEED * 2
             self.cmd.angular.z = 0.0
-        elif self.laser_forward < 5 and self.laser_forward >= 0.5:
-            self.cmd.linear.x = 0.1
+        elif self.laser_forward < 2 and self.laser_forward >= 0.5:
+            self.cmd.linear.x = NORMAL_SPEED / 2
             self.cmd.angular.z = 0.0         
         else:
+            radians = self.turn_degrees(20)
             self.cmd.linear.x = 0.0
-            self.cmd.angular.z = 1.0
-            
-        # Publishing the cmd_vel values to a Topic
-        self.publisher_.publish(self.cmd)
-
-        # Logic of move
-        # self.cmd.linear.x = 0.0
-        # self.cmd.angular.z = 0.0
-        # Publishing the cmd_vel values to a Topic
+            self.cmd.angular.z = radians
+            self.log(f"{radians}")
         self.publisher_.publish(self.cmd)
 
 
