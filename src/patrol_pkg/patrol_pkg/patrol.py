@@ -54,6 +54,17 @@ class  Patrol(Node):
     def log(self, msg):
         self.get_logger().info(msg)
 
+    def turn(self, degrees):
+        radians = self.calculateAngularRequiredFor(degrees)
+        self.cmd.linear.x = 0.0
+        self.cmd.angular.z = radians
+    
+    def turnLeft(self, degrees):
+        self.turn(degrees)
+
+    def turnRight(self, degrees):
+        self.turn(- degrees)
+
     def motion(self):
         # print the data
         self.log('Forward: "%s"' % str(self.laser_forward))
@@ -70,9 +81,7 @@ class  Patrol(Node):
             self.cmd.linear.x = self.speed / 2
             self.cmd.angular.z = 0.0         
         else:
-            radians = self.calculateAngularRequiredFor(5)
-            self.cmd.linear.x = 0.0
-            self.cmd.angular.z = radians
+            self.turnLeft(5)
 
             # if self.laser_frontLeft > self.laser_frontRight:
             #     self.cmd.angular.z = - self.cmd.angular.z
