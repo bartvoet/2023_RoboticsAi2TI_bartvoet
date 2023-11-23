@@ -7,9 +7,10 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from rclpy.qos import ReliabilityPolicy, QoSProfile
 from math import radians
+import math
 
 PHYSICAL_SPEED = 0.05
-SIMULATED_SPEED = 0.5
+SIMULATED_SPEED = 0.1
 
 class  Patrol(Node):
 
@@ -36,9 +37,10 @@ class  Patrol(Node):
         # create a Twist message
         self.cmd = Twist()
         self.timer = self.create_timer(self.timer_period, self.motion)
+        self.lastMsg = None
 
     def laser_callback(self,msg):
-        boundary=len(msg.ranges) // 8
+        boundary=len(msg.ranges) // 12
         # Save the frontal laser scan info at 0°
         self.laser_forward = msg.ranges[-1]
         self.laser_frontLeft = min(msg.ranges[0:boundary])
@@ -46,54 +48,109 @@ class  Patrol(Node):
         self.leftDistance = msg.ranges[len(msg.ranges) // 4]
         self.rightDistance = msg.ranges[len(msg.ranges) // 4 * 3]
         self.backDistance = msg.ranges[len(msg.ranges) // 4 * 3]
+        self.lastMsg = msg.ranges
+
+    def rangeFromCenter(self, degrees):
+        if self.lastMsg:
+            range = (len(self.lastMsg) * (degrees) // 360) // 2
+            self.log(f"calc range: {len(self.lastMsg)} {range}")
+            return self.lastMsg[-range:] + self.lastMsg[0:range]
+        return None
+
+
+    def minRangeFromCenter(self, degrees):
+        range = self.rangeFromCenter(degrees)
+        if range:
+            return min(range)
+        return None
+
+    def avgRangeFromCenter(self, degrees):
+        range = self.rangeFromCenter(degrees)
+        if range:
+            return sum(range) / len(range)
+        return None
 
     def calculateAngularRequiredFor(self, degrees):
         #return 1.0
         return radians(degrees) * (1 / self.timer_period)
 
     def log(self, msg):
-        self.get_logger().info(msg)
+        self.get_logger().info(str(msg))
 
     def turn(self, degrees):
         radians = self.calculateAngularRequiredFor(degrees)
         self.cmd.linear.x = 0.0
         self.cmd.angular.z = radians
+        self.log(f"Turning {radians}")  
     
     def turnLeft(self, degrees):
         self.turn(degrees)
+        self.log("Turning left")
 
     def turnRight(self, degrees):
         self.turn(- degrees)
+        self.log("Turning right")
+    
+    def goForward(self, speed):
+        self.cmd.linear.x = speed
+        self.cmd.angular.z = 0.0
+    
+    def go(self):
+        self.publisher_.publish(self.cmd)
 
-    def motion(self):
-        # print the data
-        self.log('Forward: "%s"' % str(self.laser_forward))
-        self.log(str(self.laser_frontLeft))
-        self.log(str(self.laser_frontRight))
+    def logDistances(self):
+        self.log(f"Forward: {self.laser_forward}")
+        self.log(f"Front-left {self.laser_frontLeft}")
+        self.log(f"Front-right {self.laser_frontRight}")
         self.log(f"left {self.leftDistance}")
         self.log(f"right {self.rightDistance}")
-        
+
+    def stop(self):
+        self.cmd.linear.x = 0.0
+        self.cmd.angular.z = 0.0
+
+    def motion(self):
         # Logic of move
-        if self.laser_forward > 5:
-            self.cmd.linear.x = self.speed
-            self.cmd.angular.z = 0.0
-        elif self.laser_forward < 2 and self.laser_forward >= 0.4:
-            self.cmd.linear.x = self.speed / 2
-            self.cmd.angular.z = 0.0         
+
+        self.logDistances()
+        #forward = self.laser_forward
+        forward = self.minRangeFromCenter(5)
+        self.log(f"new forward: {forward}" )
+
+        for i in range(1,12):
+            self.log(f"avg for {i * 10} ->  {self.avgRangeFromCenter(i * 10)}" )
+
+        if forward is None:
+            self.stop()
+            return
+
+        self.log("aaaa")
+
+        if forward > 5:
+            self.goForward(self.speed)
+        elif forward >= 0.5:
+            self.goForward(self.speed / 2)
+        elif forward >= 0.3:
+            self.goForward(self.speed / 4)
         else:
-            self.turnLeft(5)
+            if math.isnan(self.leftDistance):
+                self.turnRight(5)
+            elif math.isnan(self.rightDistance):
+                self.turnLeft(5)
 
-            # if self.laser_frontLeft > self.laser_frontRight:
-            #     self.cmd.angular.z = - self.cmd.angular.z
+            #if self.leftDistance > self.rightDistance:
+            if self.laser_frontLeft < self.laser_frontRight:
+                self.turnRight(40)
+            else:
+                self.turnLeft(40)
 
-            self.log(f"Turning {radians}")
-        self.publisher_.publish(self.cmd)
+        self.go()
             
 def main(args=None):
     # initialize the ROS communication
     rclpy.init(args=args)
     # declare the node constructor
-    patrol = Patrol(PHYSICAL_SPEED)       
+    patrol = Patrol(SIMULATED_SPEED)       
     # pause the program execution, waits for a request to kill the node (ctrl+c)
     rclpy.spin(patrol)
     # Explicity destroy the node
