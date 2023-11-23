@@ -15,31 +15,88 @@ SIMULATED_SPEED = 0.1
 class  Patrol(Node):
 
     def __init__(self, speed):
-        # Here you have the class constructor
-        # call the class constructor
         super().__init__('patrol')
-        # create the publisher object
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
-        # create the subscriber object
-        self.subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, 
-                                                   QoSProfile(depth=10, reliability=ReliabilityPolicy.SYSTEM_DEFAULT))
-        # define the timer period for 0.5 seconds
+        self.subscriber = self.create_subscription(LaserScan, 
+                                                   '/scan', 
+                                                   self.laser_callback, 
+                                                   QoSProfile(depth=10, 
+                                                              reliability=ReliabilityPolicy.SYSTEM_DEFAULT))
+        
         self.timer_period = 0.50
         self.speed = speed
-
-        # create a Twist message
-        self.cmd = Twist()
+        self.navigator = Navigation(self.publisher_, self.timer_period, self.get_logger())
         self.timer = self.create_timer(self.timer_period, self.motion)
-        self.lastMsg = None
+
 
     def laser_callback(self,msg):
         self.lidar = Lidar(msg,self.get_logger())
 
+    def log(self, msg):
+        self.get_logger().info(str(msg))
+
+    def motion(self):
+        # Logic of move
+
+        if self.lidar is None:
+            return
+
+        self.lidar.logDistances()
+        #forward = self.laser_forward
+        forward = self.lidar.minRangeFromCenter(5)
+        self.log(f"new forward: {forward}" )
+
+        for i in range(1,12):
+            self.log(f"avg for {i * 10} ->  {self.lidar.avgRangeFromCenter(i * 10)}" )
+
+        if forward is None:
+            self.navigator.stop()
+            return
+
+        if forward > 5:
+            self.navigator.goForward(self.speed)
+        elif forward >= 0.5:
+            self.navigator.goForward(self.speed / 2)
+        elif forward >= 0.3:
+            self.navigator.goForward(self.speed / 4)
+        else:
+            if math.isnan(self.lidar.leftDistance):
+                self.navigator.turnRight(5)
+            elif math.isnan(self.lidar.rightDistance):
+                self.navigator.turnLeft(5)
+
+            #if self.leftDistance > self.rightDistance:
+            if self.lidar.laser_frontLeft < self.lidar.laser_frontRight:
+                self.navigator.turnRight(40)
+            else:
+                self.navigator.turnLeft(40)
+
+        self.navigator.go()
+            
+def main(args=None):
+    # initialize the ROS communication
+    rclpy.init(args=args)
+    # declare the node constructor
+    patrol = Patrol(SIMULATED_SPEED)       
+    # pause the program execution, waits for a request to kill the node (ctrl+c)
+    rclpy.spin(patrol)
+    # Explicity destroy the node
+    patrol.destroy_node()
+    # shutdown the ROS communication
+    rclpy.shutdown()
+
+class Navigation:
+    def __init__(self, publisher, timer_period, logger):
+        self.timer_period = timer_period
+        self.logger = logger
+        self.cmd = Twist()
+        self.publisher = publisher
+    
     def calculateAngularRequiredFor(self, degrees):
         return radians(degrees) * (1 / self.timer_period)
 
     def log(self, msg):
-        self.get_logger().info(str(msg))
+        self.logger.info(str(msg))
 
     def turn(self, degrees):
         radians = self.calculateAngularRequiredFor(degrees)
@@ -60,61 +117,12 @@ class  Patrol(Node):
         self.cmd.angular.z = 0.0
     
     def go(self):
-        self.publisher_.publish(self.cmd)
+        self.publisher.publish(self.cmd)
 
     def stop(self):
         self.cmd.linear.x = 0.0
         self.cmd.angular.z = 0.0
 
-    def motion(self):
-        # Logic of move
-
-        if self.lidar is None:
-            return
-
-        self.lidar.logDistances()
-        #forward = self.laser_forward
-        forward = self.lidar.minRangeFromCenter(5)
-        self.log(f"new forward: {forward}" )
-
-        for i in range(1,12):
-            self.log(f"avg for {i * 10} ->  {self.lidar.avgRangeFromCenter(i * 10)}" )
-
-        if forward is None:
-            self.stop()
-            return
-
-        if forward > 5:
-            self.goForward(self.speed)
-        elif forward >= 0.5:
-            self.goForward(self.speed / 2)
-        elif forward >= 0.3:
-            self.goForward(self.speed / 4)
-        else:
-            if math.isnan(self.lidar.leftDistance):
-                self.turnRight(5)
-            elif math.isnan(self.lidar.rightDistance):
-                self.turnLeft(5)
-
-            #if self.leftDistance > self.rightDistance:
-            if self.lidar.laser_frontLeft < self.lidar.laser_frontRight:
-                self.turnRight(40)
-            else:
-                self.turnLeft(40)
-
-        self.go()
-            
-def main(args=None):
-    # initialize the ROS communication
-    rclpy.init(args=args)
-    # declare the node constructor
-    patrol = Patrol(SIMULATED_SPEED)       
-    # pause the program execution, waits for a request to kill the node (ctrl+c)
-    rclpy.spin(patrol)
-    # Explicity destroy the node
-    patrol.destroy_node()
-    # shutdown the ROS communication
-    rclpy.shutdown()
 
 class Lidar:
     def __init__(self, msg, logger):
