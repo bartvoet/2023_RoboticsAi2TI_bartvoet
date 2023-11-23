@@ -36,9 +36,7 @@ class  Patrol(Node):
         self.get_logger().info(str(msg))
 
     def motion(self):
-        # Logic of move
-
-        if self.lidar is None:
+        if self.lidar is None or self.navigator is None:
             return
 
         self.lidar.logDistances()
@@ -74,9 +72,7 @@ class  Patrol(Node):
         self.navigator.go()
             
 def main(args=None):
-    # initialize the ROS communication
     rclpy.init(args=args)
-    # declare the node constructor
     patrol = Patrol(SIMULATED_SPEED)       
     # pause the program execution, waits for a request to kill the node (ctrl+c)
     rclpy.spin(patrol)
