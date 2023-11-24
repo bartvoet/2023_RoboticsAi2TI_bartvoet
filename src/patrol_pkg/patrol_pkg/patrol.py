@@ -1,9 +1,6 @@
 import rclpy
-# import the ROS2 python libraries
 from rclpy.node import Node
-# import the Twist module from geometry_msgs interface
 from geometry_msgs.msg import Twist
-# import the LaserScan module from sensor_msgs interface
 from sensor_msgs.msg import LaserScan
 from rclpy.qos import ReliabilityPolicy, QoSProfile
 from math import radians
@@ -28,7 +25,8 @@ class  Patrol(Node):
         self.navigator = Navigation(self.publisher_, self.timer_period, self.get_logger())
         self.timer = self.create_timer(self.timer_period, self.motion)
         self.patrolEngine = None
-
+        self.lidar = None
+        self.wait = True
 
     def laser_callback(self,msg):
         self.lidar = Lidar(msg,self. get_logger())
@@ -38,6 +36,16 @@ class  Patrol(Node):
         self.get_logger().info(str(msg))
 
     def motion(self):
+        if self.lidar is None:
+            return
+
+        if self.wait:
+            self.navigator.stop()
+            if not self.lidar.isBlockedBehind():
+                return
+            else:
+                self.wait = False
+
         if self.patrolEngine is not None:
             self.patrolEngine.motion()
 
@@ -55,7 +63,7 @@ class PatrolEngine:
         self.adjustSideAt = adjustSideAt
         self.stopAndTurnAt = stopAndTurnAt
         self.fowardAngle = fowardAngle
-
+    
     def log(self, msg):
         self.logger.info(str(msg))
 
@@ -64,7 +72,6 @@ class PatrolEngine:
             return
 
         self.lidar.logDistances()
-        #forward = self.laser_forward
         forward = self.lidar.minRangeFromCenter(self.fowardAngle)
         self.log(f"new forward: {forward}" )
 
@@ -90,8 +97,6 @@ class PatrolEngine:
                 self.navigator.turnRight(degrees=self.degrFactor)
             else:
                 self.navigator.turnLeft(degrees=self.degrFactor)
-
-        # self.navigator.go()
 
 class Navigation:
     def __init__(self, publisher, timer_period, logger):
@@ -132,6 +137,7 @@ class Navigation:
     def stop(self):
         self.cmd.linear.x = 0.0
         self.cmd.angular.z = 0.0
+        self.go()
 
 
 class Lidar:
@@ -145,8 +151,17 @@ class Lidar:
             self.laser_frontRight = min(ranges[-boundary:])
             self.leftDistance = ranges[len(ranges) // 4]
             self.rightDistance = ranges[len(ranges) // 4 * 3]
-            self.backDistance = ranges[len(ranges) // 4 * 3]
+            self.backDistance = ranges[len(ranges) // 2]
             self.lastMsg = ranges
+    
+    def isBlockedBehind(self):
+        blocked = True
+        middle = len(self.lastMsg) // 2
+        r = 2
+        for i in range(middle - r,middle + r):
+            if (not math.isnan(self.lastMsg[i])):
+                blocked = False
+        return blocked
 
     def log(self, msg):
         self.logger.info(str(msg))
