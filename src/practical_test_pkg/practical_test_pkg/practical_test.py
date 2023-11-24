@@ -29,7 +29,7 @@ class  Practical_test(Node):
         self.wait = True
 
     def laser_callback(self,msg):
-        self.lidar = Lidar(msg,self. get_logger())
+        self.lidar = Lidar(msg,self. get_logger(), 60)
         self.patrolEngine = PatrolEngine(self.navigator, self.lidar, self.get_logger())
 
     def log(self, msg):
@@ -42,10 +42,10 @@ class  Practical_test(Node):
         if self.wait:
             self.navigator.stop()
             if not self.lidar.isBlockedBehind():
-                self.log("not blocked behind")
+                self.log("Starting ...")
                 return
             else:
-               self.log("blocked behind")
+               self.log("Still stopped...")
                self.wait = False
         
         # if self.lidar.isBlockedBehind() and self.lidar.isBlockedFront():
@@ -78,7 +78,7 @@ class PatrolEngine:
         if self.lidar is None or self.navigator is None:
             return
 
-        #self.lidar.logDistances()
+        self.lidar.logDistances()
         forward = self.lidar.minRangeFromCenter(self.fowardAngle)
         #self.log(f"new forward: {forward}" )
 
@@ -148,11 +148,11 @@ class Navigation:
 
 
 class Lidar:
-    def __init__(self, msg, logger):
+    def __init__(self, msg, logger, rangeDegree):
         self.logger = logger
         if msg:
             ranges = msg.ranges
-            boundary=len(ranges) // 12 #30 graden * 2 = 60 graden TODO config
+            boundary=len(ranges) // (360 // (rangeDegree // 2)) #30 graden * 2 = 60 graden TODO config
             self.laser_forward = ranges[-1]
             self.laser_frontLeft = min(ranges[0:boundary])
             self.laser_frontRight = min(ranges[-boundary:])
