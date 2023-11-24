@@ -42,9 +42,16 @@ class  Patrol(Node):
         if self.wait:
             self.navigator.stop()
             if not self.lidar.isBlockedBehind():
+                self.log("not blocked behind")
                 return
             else:
-                self.wait = False
+               self.log("blocked behind")
+               self.wait = False
+        
+        # if self.lidar.isBlockedBehind() and self.lidar.isBlockedFront():
+        #     self.wait = True
+        #     self.log("stop...")
+        #     self.navigator.stop()
 
         if self.patrolEngine is not None:
             self.patrolEngine.motion()
@@ -71,9 +78,9 @@ class PatrolEngine:
         if self.lidar is None or self.navigator is None:
             return
 
-        self.lidar.logDistances()
+        #self.lidar.logDistances()
         forward = self.lidar.minRangeFromCenter(self.fowardAngle)
-        self.log(f"new forward: {forward}" )
+        #self.log(f"new forward: {forward}" )
 
         # for i in range(1,12):
         #     self.log(f"avg for {i * 10} ->  {self.lidar.avgRangeFromCenter(i * 10)}" )
@@ -145,7 +152,7 @@ class Lidar:
         self.logger = logger
         if msg:
             ranges = msg.ranges
-            boundary=len(ranges) // 12
+            boundary=len(ranges) // 12 #30 graden * 2 = 60 graden TODO config
             self.laser_forward = ranges[-1]
             self.laser_frontLeft = min(ranges[0:boundary])
             self.laser_frontRight = min(ranges[-boundary:])
@@ -162,6 +169,15 @@ class Lidar:
             if (not math.isnan(self.lastMsg[i])):
                 blocked = False
         return blocked
+    
+    def isBlockedFront(self):
+        r = 15
+        for i in self.lastMsg[-r:] + self.lastMsg[0:r]:
+            self.log(f"front {i}")
+            #if (not math.isnan(i)):
+            if not math.isnan(i) and i > 1.0:
+                return False
+        return True
 
     def log(self, msg):
         self.logger.info(str(msg))
@@ -176,7 +192,7 @@ class Lidar:
     def rangeFromCenter(self, degrees):
         if self.lastMsg:
             range = (len(self.lastMsg) * (degrees) // 360) // 2
-            self.log(f"calc range: {len(self.lastMsg)} {range}")
+            #self.log(f"calc range: {len(self.lastMsg)} {range}")
             return self.lastMsg[-range:] + self.lastMsg[0:range]
         return None
 
