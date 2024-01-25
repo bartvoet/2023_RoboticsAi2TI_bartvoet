@@ -7,6 +7,7 @@ from math import radians
 import math
 from example_interfaces.srv import SetBool
 from nav_msgs.msg import Odometry
+from example_interfaces.msg import String
 
 PHYSICAL_SPEED = 0.08
 SIMULATED_SPEED = 0.1
@@ -23,22 +24,28 @@ class  Prep_lidar(Node):
                                                               reliability=ReliabilityPolicy.SYSTEM_DEFAULT))
         self.odomSubscriber = self.create_subscription(Odometry, '/odom', self.odom_callback,QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE))
         
-        self.timer_period = 0.50 # 0.50 * 2 # * 10
+        self.timer_period = 0.50
         self.speed = speed
         self.navigator = Navigation(self.publisher_, self.timer_period, self.get_logger())
         self.timer = self.create_timer(self.timer_period, self.motion)
         self.patrolEngine = None
         self.lidar = None
-        self.wait = False
-        self.turnedRecently = False
         self.service_ = self.create_service(SetBool, "activate_robot", self.callback_activate_robot)
-        self.turnedRecently = False
+        
         self.odom = Odometry() 
         self.starting_position_x = None
         self.orientation = 1
         self.position_x = 0
         self.position_y = 0
         self.coordinate = (0,0)
+        
+        self.eventPublisher = self.create_publisher(String, 'patrolEvents', 10)
+        
+    def publishEvent(self, eventText):
+        self.log(f"Sending event: {eventText}")
+        msg = String()
+        msg.data = eventText
+        self.eventPublisher.publish(msg)
         
     def odom_callback(self,msg):
         self.orientation = msg.pose.pose.orientation.w
@@ -50,7 +57,6 @@ class  Prep_lidar(Node):
         self.distance_traveled = abs(msg.pose.pose.position.x - self.starting_position_x)
 
         return msg.pose.pose.orientation.w
-    
     
     def callback_activate_robot(self, request, response):
         self.activated_ = request.data
@@ -67,8 +73,7 @@ class  Prep_lidar(Node):
         if self.patrolEngine:
             self.patrolEngine.lidar = self.lidar
         else:
-            self.patrolEngine = PatrolEngine(self.navigator, self.lidar, self.get_logger())
-            
+            self.patrolEngine = Balancer(self.navigator, self.lidar, self.get_logger())
 
     def log(self, msg):
         self.get_logger().info(str(msg))
@@ -81,26 +86,50 @@ class  Prep_lidar(Node):
     def nowWayFurther(self):
         return self.lidar.laser_forward < 0.45 and self.lidar.leftDistance < 0.5 and self.lidar.rightDistance < 0.5
  
+    def performUTurn(self):
+        self.navigator.turnLeft(180)
+        self.coordinate = (self.position_x, self.position_y)
+        self.publishEvent(f"U-turn at {self.coordinate}")
+        
+    def logCoordinate(self):
+        self.coordinate = (self.position_x, self.position_y)
+        
+    def performRightTurn(self):    
+        self.navigator.turnRight(90)
+        self.logCoordinate()
+        self.publishEvent(f"Turning at {self.coordinate}")
+        
+    def performLeftTurn(self):    
+        self.navigator.turnLeft(90)
+        self.logCoordinate()
+        self.publishEvent(f"Turning at {self.coordinate}")
+        
+    def isThereAGapToTheRight(self):
+        scanRangeClose = 30
+        entryRange = 45
+        return self.checkSide(self.lidar.getRangesAroundRight(scanRangeClose), 
+                              self.lidar.getRangesAroundRight(entryRange))
+    
+    def isThereAGapToTheLeft(self):
+        scanRangeClose = 30
+        entryRange = 45
+        return self.checkSide(self.lidar.getRangesAroundLeft(scanRangeClose), 
+                              self.lidar.getRangesAroundLeft(entryRange))
+
     def motion(self):
         if self.lidar is None:
             return
         self.lidar.logDistances()
         self.log(f"x = {self.position_x}, y = {self.position_y}")
         if self.patrolEngine:
-            scanRangeClose = 30
-            entryRange = 45
-
             if self.nowWayFurther() and self.isFarEnoughFromPreviousPoint():
-                self.navigator.turnLeft(180)
-                self.coordinate = (self.position_x, self.position_y)
-                self.log("------u-turn-------")
-            elif self.checkSide(self.lidar.getRangesAroundRight(scanRangeClose), 
-                              self.lidar.getRangesAroundRight(entryRange)) \
-                        and self.isFarEnoughFromPreviousPoint():
-                self.navigator.turnRight(90)
-                self.log("------turning-------")
-                self.last = True
-                self.coordinate = (self.position_x, self.position_y)
+                self.performUTurn()
+            elif self.isThereAGapToTheRight() and self.isFarEnoughFromPreviousPoint():
+                self.performRightTurn()
+            # elif self.checkSide(self.lidar.getRangesAroundLeft(scanRangeClose), 
+            #                   self.lidar.getRangesAroundLeft(entryRange)) \
+            #             and self.isFarEnoughFromPreviousPoint():
+            #     self.performLeftTurn()
             else:
                 self.patrolEngine.motion()
 
@@ -155,7 +184,7 @@ class  Prep_lidar(Node):
             self.log("no gap")
         return False
 
-class PatrolEngine:
+class Balancer:
     def __init__(self, navigator, lidar,  log, speed=PHYSICAL_SPEED,
                  degrSide=1, adjustSideAt = 0.05, degrFactor=8, slowDownAt = 0.5, stopAndTurnAt = 0.3,
                     fowardAngle = 55 ):
@@ -178,22 +207,11 @@ class PatrolEngine:
         if self.lidar is None or self.navigator is None:
             return
 
-        #elf.lidar.logDistances()
         forward = self.lidar.minRangeFromCenter(self.fowardAngle)
-        #self.log(f"new forward: {forward}" )
-
-        # for i in range(1,12):
-        #     self.log(f"avg for {i * 10} ->  {self.lidar.avgRangeFromCenter(i * 10)}" )
 
         if forward is None:
             self.navigator.stop()
             return
-        
-        # if math.isnan(self.lidar.leftDistance):
-        #     self.navigator.turnRight(degrees=self.degrSide)
-        # elif math.isnan(self.lidar.rightDistance):
-        #     self.navigator.turnLeft(degrees=self.degrSide)
-
        
         if forward > self.slowDownAt:
             self.navigator.goForward(self.speed)
@@ -211,73 +229,6 @@ class PatrolEngine:
                 self.navigator.turnRight(degrees=self.degrFactor)
             else:
                 self.navigator.turnLeft(degrees=self.degrFactor)
-
-    def motionn(self):
-        if self.lidar is None or self.navigator is None:
-            return
-
-        #self.lidar.logDistances()
-        #self.log(f"new forward: {forward}" )
-
-        # for i in range(1,12):
-        #     self.log(f"avg for {i * 10} ->  {self.lidar.avgRangeFromCenter(i * 10)}" )
-
-        
-        # if math.isnan(self.lidar.leftDistance):
-        #     self.navigator.turnRight(degrees=self.degrSide)
-        # elif math.isnan(self.lidar.rightDistance):
-        #     self.navigator.turnLeft(degrees=self.degrSide)
-
-        # if forward > self.slowDownAt:
-        #     self.navigator.goForward(self.speed)
-        # elif forward >= self.stopAndTurnAt:
-        #     self.navigator.goForward(self.speed / 2)
-        # else:
-        #     #if self.lidar.leftDistance > self.lidar.rightDistance:
-        #     if self.lidar.laser_frontLeft < self.lidar.laser_frontRight:
-        #         self.navigator.turnRight(degrees=self.degrFactor)
-        
-        
-        thresholdDistance = 0.90
-        scanRange = 90      
-        
-        rightSliceList = self.lidar.getRangesAroundRight(30)
-        rightSliceLen = len(rightSliceList)
-        rightSlice = map(lambda x: 2 if math.isnan(x) else x,
-            self.lidar.getRangesAroundRight(scanRange))
-        
-        rightAverage = sum(rightSlice) / rightSliceLen
-        
-        self.log(f"{rightAverage}")
-        
-        forward = self.lidar.minRangeFromCenter(self.fowardAngle)
-        #self.log(f"new forward: {forward}" )
-
-        # for i in range(1,12):
-        #     self.log(f"avg for {i * 10} ->  {self.lidar.avgRangeFromCenter(i * 10)}" )
-
-        if forward is None:
-            self.navigator.stop()
-            return
-        
-        if rightAverage > thresholdDistance and not self.turnedRight:
-            self.log("going right")
-            self.navigator.stop()
-            self.navigator.turnRight(degrees=90)
-            self.turnedRight = True
-        else:
-            self.navigator.goForward(self.speed / 2)
-            # if forward > self.slowDownAt:
-            #     self.navigator.goForward(self.speed)
-            # elif forward >= self.stopAndTurnAt:
-            #     self.navigator.goForward(self.speed / 2)
-            # else:
-            #     #if self.lidar.leftDistance > self.lidar.rightDistance:
-            #     if self.lidar.laser_frontLeft < self.lidar.laser_frontRight:
-            #         self.navigator.turnRight(degrees=self.degrFactor)
-            #     else:
-            #         self.navigator.turnLeft(degrees=self.degrFactor)
-  
 
 class Navigation:
     def __init__(self, publisher, timer_period, logger):
@@ -363,16 +314,6 @@ class Lidar:
             return self.lastMsg[-range:] + self.lastMsg[0:range]
         return None
 
-    
-    def isBlockedFront(self):
-        r = 15
-        for i in self.lastMsg[-r:] + self.lastMsg[0:r]:
-            self.log(f"front {i}")
-            #if (not math.isnan(i)):
-            if not math.isnan(i) and i > 1.0:
-                return False
-        return True
-
     def log(self, msg):
         self.logger.info(str(msg))
 
@@ -383,13 +324,12 @@ class Lidar:
         self.log(f"left {self.leftDistance}")
         self.log(f"right {self.rightDistance}")
     
-    def dump(self):
+    def dumpAllRanges(self):
         self.log(f"ranges: {self.ranges}")
 
     def rangeFromCenter(self, degrees):
         if self.lastMsg:
             range = (len(self.lastMsg) * (degrees) // 360) // 2
-            #self.log(f"calc range: {len(self.lastMsg)} {range}")
             return self.lastMsg[-range:] + self.lastMsg[0:range]
         return None
 
@@ -409,11 +349,8 @@ class Lidar:
 def main(args=None):
     rclpy.init(args=args)
     patrol = Prep_lidar(SIMULATED_SPEED)       
-    # pause the program execution, waits for a request to kill the node (ctrl+c)
     rclpy.spin(patrol)
-    # Explicity destroy the node
     patrol.destroy_node()
-    # shutdown the ROS communication
     rclpy.shutdown()
 
 if __name__ == '__main__':
