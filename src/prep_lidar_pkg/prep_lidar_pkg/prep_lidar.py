@@ -34,13 +34,14 @@ class  Prep_lidar(Node):
         
         self.stopped = False
         self.moveStateChanged = True
+        self.debug = False
         
         self.odom = Odometry() 
         self.starting_position_x = None
         self.orientation = 1
         self.position_x = 0
         self.position_y = 0
-        self.coordinate = (0,0)
+        self.currentCoordinate = (0,0)
         
         self.eventPublisher = self.create_publisher(String, 'patrolEvents', 10)
         self.commandListener = self.create_subscription(String, 'patrolCommands', self.callback_commands, 10)
@@ -54,6 +55,10 @@ class  Prep_lidar(Node):
         elif command == "start":
             self.stopped = False
             self.moveStateChanged = True
+        elif command == "startDebug":
+            self.debug = True
+        elif command == "stopDebug":
+            self.debug = False
         else:
             self.log("Unknown command")
         
@@ -96,7 +101,7 @@ class  Prep_lidar(Node):
         
     def isFarEnoughFromPreviousPoint(self):
         minDistance = 0.4
-        x, y = self.coordinate
+        x, y = self.currentCoordinate
         return abs(self.position_x - x) > minDistance or abs(self.position_y - y) > minDistance
     
     def nowWayFurther(self):
@@ -104,11 +109,11 @@ class  Prep_lidar(Node):
  
     def performUTurn(self):
         self.navigator.turnLeft(180)
-        self.coordinate = self.getCurrentPosAsTuple()
-        self.publishEvent(f"U-turn at {self.coordinate}")
+        self.currentCoordinate = self.getCurrentPosAsTuple()
+        self.publishEvent(f"U-turn at {self.currentCoordinate}")
         
     def logCoordinate(self):
-        self.coordinate = self.getCurrentPosAsTuple()
+        self.currentCoordinate = self.getCurrentPosAsTuple()
         
     def getCurrentPosAsTuple(self):
         return (self.position_x, self.position_y)
@@ -116,12 +121,12 @@ class  Prep_lidar(Node):
     def performRightTurn(self):    
         self.navigator.turnRight(90)
         self.logCoordinate()
-        self.publishEvent(f"Turning at {self.coordinate}")
+        self.publishEvent(f"Turning right at {self.currentCoordinate}")
         
     def performLeftTurn(self):    
         self.navigator.turnLeft(90)
         self.logCoordinate()
-        self.publishEvent(f"Turning at {self.coordinate}")
+        self.publishEvent(f"Turning left at {self.currentCoordinate}")
         
     def isThereAGapToTheRight(self):
         scanRangeClose = 30
@@ -151,7 +156,8 @@ class  Prep_lidar(Node):
         else:
             self.sendIfMoveStateChanged("start")
         
-        self.lidar.logDistances()
+        if self.debug:
+            self.lidar.logDistances()
         
         if self.patrolEngine:
             if self.nowWayFurther() and self.isFarEnoughFromPreviousPoint():
@@ -198,6 +204,10 @@ class  Prep_lidar(Node):
         self.log(f"min: {min(entries)}")
         return min(entries) > 0.4
 
+    def debugLog(self, message):
+        if self.debug:
+            self.log(message)
+
     def checkSide(self, scan, entry):
         maxLength = 2  
         
@@ -208,12 +218,12 @@ class  Prep_lidar(Node):
             rightSliceList))
         
         if(self.isGap(rightSlice)):
-            self.log("gap")
+            self.debugLog("gap")
             if self.isEntry(entries):
-                self.log("entry")
+                self.debugLog("entry")
                 return True
         else:
-            self.log("no gap")
+            self.debugLog("no gap")
         return False
 
 class Balancer:
@@ -302,7 +312,6 @@ class Navigation:
         self.cmd.linear.x = 0.0
         self.cmd.angular.z = 0.0
         self.go()
-
 
 class Lidar:
     def __init__(self, msg, logger, rangeDegree):
