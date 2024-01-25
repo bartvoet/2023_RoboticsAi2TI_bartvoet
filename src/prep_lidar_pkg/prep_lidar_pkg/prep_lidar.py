@@ -5,6 +5,7 @@ from sensor_msgs.msg import LaserScan
 from rclpy.qos import ReliabilityPolicy, QoSProfile
 from math import radians
 import math
+from example_interfaces.srv import SetBool
 
 PHYSICAL_SPEED = 0.08
 SIMULATED_SPEED = 0.1
@@ -20,17 +21,34 @@ class  Prep_lidar(Node):
                                                    QoSProfile(depth=10, 
                                                               reliability=ReliabilityPolicy.SYSTEM_DEFAULT))
         
-        self.timer_period = 0.50
+        self.timer_period = 0.50 # 0.50 * 2 # * 10
         self.speed = speed
         self.navigator = Navigation(self.publisher_, self.timer_period, self.get_logger())
         self.timer = self.create_timer(self.timer_period, self.motion)
         self.patrolEngine = None
         self.lidar = None
         self.wait = False
+        self.turnedRecently = False
+        self.service_ = self.create_service(SetBool, "activate_robot", self.callback_activate_robot)
+        self.turnedRecently = False
+    
+    def callback_activate_robot(self, request, response):
+        self.activated_ = request.data
+        response.success = True
+        if self.activated_:
+            response.message = "Robot has been activated"
+        else:
+            response.message = "Robot has been deactivated"
+        return response
 
     def laser_callback(self,msg):
         self.lidar = Lidar(msg,self. get_logger(), 60)
-        self.patrolEngine = PatrolEngine(self.navigator, self.lidar, self.get_logger())
+        
+        if self.patrolEngine:
+            self.patrolEngine.lidar = self.lidar
+        else:
+            self.patrolEngine = PatrolEngine(self.navigator, self.lidar, self.get_logger())
+            
 
     def log(self, msg):
         self.get_logger().info(str(msg))
@@ -39,22 +57,68 @@ class  Prep_lidar(Node):
         if self.lidar is None:
             return
 
-        # if self.wait:
-        #     self.navigator.stop()
-        #     if not self.lidar.isBlockedBehind():
-        #         self.log("Starting ...")
-        #         return
-        #     else:
-        #        self.log("Still stopped...")
-        #        self.wait = False
-        
-        # if self.lidar.isBlockedBehind() and self.lidar.isBlockedFront():
-        #     self.wait = True
-        #     self.log("stop...")
-        #     self.navigator.stop()
+        if self.patrolEngine:
+            scanRangeClose = 30
+            entryRange = 45
 
-        if self.patrolEngine is not None:
-            self.patrolEngine.motion()
+            if self.checkSide(self.lidar.getRangesAroundRight(scanRangeClose), self.lidar.getRangesAroundRight(entryRange)) and not self.turnedRecently:
+                self.navigator.turnRight(90)
+                self.log("------turning-------")
+                self.turnedRecently = True
+            else:
+                self.patrolEngine.motion()
+
+
+    def printRange(self, range):
+        self.log(list(map(lambda x: round(x,2), range)))
+
+    def cleanRange(self, range):
+        maxLength = 3.5 
+        return list(map(
+            lambda x: maxLength if math.isnan(x) or math.isinf(x) else x,
+            range))
+
+    def avg(self, slice):
+        return sum(slice) / len(slice)
+
+    def isGap(self, slice):
+        thresholdDistance = 0.90
+        sortedCopy = slice.copy()
+        sortedCopy.sort(reverse=True)
+        topTen = sortedCopy[0:11]
+        averageTopTen = self.avg(topTen)
+        self.log(topTen)
+        result = list(filter(lambda x: abs(x - averageTopTen) > (averageTopTen * 0.1), topTen))
+        
+        if averageTopTen < thresholdDistance:
+            return False
+        
+        if result:
+            return False
+        else:
+            return True 
+        
+    def isEntry(self, entries):
+        self.log(f"min: {min(entries)}")
+        return min(entries) > 0.4
+
+    def checkSide(self, scan, entry):
+        maxLength = 2  
+        
+        rightSliceList = self.cleanRange(scan)
+        entries = self.cleanRange(entry)
+        rightSlice = list(map(
+            lambda x: maxLength if math.isnan(x) or math.isinf(x) else x,
+            rightSliceList))
+        
+        if(self.isGap(rightSlice)):
+            self.log("gap")
+            if self.isEntry(entries):
+                self.log("entry")
+                return True
+        else:
+            self.log("no gap")
+        return False
 
 class PatrolEngine:
     def __init__(self, navigator, lidar,  log, speed=PHYSICAL_SPEED,
@@ -70,6 +134,7 @@ class PatrolEngine:
         self.adjustSideAt = adjustSideAt
         self.stopAndTurnAt = stopAndTurnAt
         self.fowardAngle = fowardAngle
+        self.turnedRight = False
     
     def log(self, msg):
         self.logger.info(str(msg))
@@ -78,7 +143,7 @@ class PatrolEngine:
         if self.lidar is None or self.navigator is None:
             return
 
-        self.lidar.logDistances()
+        #self.lidar.logDistances()
         forward = self.lidar.minRangeFromCenter(self.fowardAngle)
         #self.log(f"new forward: {forward}" )
 
@@ -94,6 +159,7 @@ class PatrolEngine:
         # elif math.isnan(self.lidar.rightDistance):
         #     self.navigator.turnLeft(degrees=self.degrSide)
 
+       
         if forward > self.slowDownAt:
             self.navigator.goForward(self.speed)
         elif forward >= self.stopAndTurnAt:
@@ -104,6 +170,73 @@ class PatrolEngine:
                 self.navigator.turnRight(degrees=self.degrFactor)
             else:
                 self.navigator.turnLeft(degrees=self.degrFactor)
+
+    def motionn(self):
+        if self.lidar is None or self.navigator is None:
+            return
+
+        #self.lidar.logDistances()
+        #self.log(f"new forward: {forward}" )
+
+        # for i in range(1,12):
+        #     self.log(f"avg for {i * 10} ->  {self.lidar.avgRangeFromCenter(i * 10)}" )
+
+        
+        # if math.isnan(self.lidar.leftDistance):
+        #     self.navigator.turnRight(degrees=self.degrSide)
+        # elif math.isnan(self.lidar.rightDistance):
+        #     self.navigator.turnLeft(degrees=self.degrSide)
+
+        # if forward > self.slowDownAt:
+        #     self.navigator.goForward(self.speed)
+        # elif forward >= self.stopAndTurnAt:
+        #     self.navigator.goForward(self.speed / 2)
+        # else:
+        #     #if self.lidar.leftDistance > self.lidar.rightDistance:
+        #     if self.lidar.laser_frontLeft < self.lidar.laser_frontRight:
+        #         self.navigator.turnRight(degrees=self.degrFactor)
+        
+        
+        thresholdDistance = 0.90
+        scanRange = 90      
+        
+        rightSliceList = self.lidar.getRangesAroundRight(30)
+        rightSliceLen = len(rightSliceList)
+        rightSlice = map(lambda x: 2 if math.isnan(x) else x,
+            self.lidar.getRangesAroundRight(scanRange))
+        
+        rightAverage = sum(rightSlice) / rightSliceLen
+        
+        self.log(f"{rightAverage}")
+        
+        forward = self.lidar.minRangeFromCenter(self.fowardAngle)
+        #self.log(f"new forward: {forward}" )
+
+        # for i in range(1,12):
+        #     self.log(f"avg for {i * 10} ->  {self.lidar.avgRangeFromCenter(i * 10)}" )
+
+        if forward is None:
+            self.navigator.stop()
+            return
+        
+        if rightAverage > thresholdDistance and not self.turnedRight:
+            self.log("going right")
+            self.navigator.stop()
+            self.navigator.turnRight(degrees=90)
+            self.turnedRight = True
+        else:
+            self.navigator.goForward(self.speed / 2)
+            # if forward > self.slowDownAt:
+            #     self.navigator.goForward(self.speed)
+            # elif forward >= self.stopAndTurnAt:
+            #     self.navigator.goForward(self.speed / 2)
+            # else:
+            #     #if self.lidar.leftDistance > self.lidar.rightDistance:
+            #     if self.lidar.laser_frontLeft < self.lidar.laser_frontRight:
+            #         self.navigator.turnRight(degrees=self.degrFactor)
+            #     else:
+            #         self.navigator.turnLeft(degrees=self.degrFactor)
+  
 
 class Navigation:
     def __init__(self, publisher, timer_period, logger):
@@ -151,24 +284,44 @@ class Lidar:
     def __init__(self, msg, logger, rangeDegree):
         self.logger = logger
         if msg:
-            ranges = msg.ranges
-            boundary=len(ranges) // (360 // (rangeDegree // 2)) #30 graden * 2 = 60 graden TODO config
-            self.laser_forward = ranges[-1]
-            self.laser_frontLeft = min(ranges[0:boundary])
-            self.laser_frontRight = min(ranges[-boundary:])
-            self.leftDistance = ranges[len(ranges) // 4]
-            self.rightDistance = ranges[len(ranges) // 4 * 3]
-            self.backDistance = ranges[len(ranges) // 2]
-            self.lastMsg = ranges
+            self.ranges = msg.ranges
+            self.numberOfMeasurements = len(self.ranges)
+            boundary=len(self.ranges) // (360 // (rangeDegree // 2)) #30 graden * 2 = 60 graden TODO config
+            self.laser_forward = self.ranges[-1]
+            self.laser_frontLeft = min(self.ranges[0:boundary])
+            self.laser_frontRight = min(self.ranges[-boundary:])
+            self.leftDistance = self.ranges[len(self.ranges) // 4]
+            self.rightDistance = self.ranges[len(self.ranges) // 4 * 3]
+            self.backDistance = self.ranges[len(self.ranges) // 2]
+            self.lastMsg = self.ranges
+            
+    def degreeToRange(self, degree):
+        return (len(self.lastMsg) * (degree) // 360)
     
-    def isBlockedBehind(self):
-        blocked = True
-        middle = len(self.lastMsg) // 2
-        r = 2
-        for i in range(middle - r,middle + r):
-            if (not math.isnan(self.lastMsg[i])):
-                blocked = False
-        return blocked
+    def getRangesAround(self, baseDegree, around):
+        if self.lastMsg:
+            rangeAround = self.degreeToRange(around) // 2
+            rangeDegreeFrom = self.degreeToRange(baseDegree)
+            
+            return self.lastMsg[rangeDegreeFrom - rangeAround : rangeDegreeFrom + rangeAround]
+        return None
+    
+    def getRangesAroundLeft(self, around):
+        return self.getRangesAround(90, around)
+
+    def getRangesAroundRight(self, around):
+        return self.getRangesAround(270, around)
+    
+    def getRangesAroundBottom(self, around):
+        return self.getRangesAround(180, around)
+    
+    def rangeFromFront(self, degrees):
+        if self.lastMsg:
+            range = (len(self.lastMsg) * (degrees) // 360) // 2
+            #self.log(f"calc range: {len(self.lastMsg)} {range}")
+            return self.lastMsg[-range:] + self.lastMsg[0:range]
+        return None
+
     
     def isBlockedFront(self):
         r = 15
@@ -188,6 +341,9 @@ class Lidar:
         self.log(f"Front-right {self.laser_frontRight}")
         self.log(f"left {self.leftDistance}")
         self.log(f"right {self.rightDistance}")
+    
+    def dump(self):
+        self.log(f"ranges: {self.ranges}")
 
     def rangeFromCenter(self, degrees):
         if self.lastMsg:
