@@ -6,6 +6,7 @@ from rclpy.qos import ReliabilityPolicy, QoSProfile
 from math import radians
 import math
 from example_interfaces.srv import SetBool
+from nav_msgs.msg import Odometry
 
 PHYSICAL_SPEED = 0.08
 SIMULATED_SPEED = 0.1
@@ -20,6 +21,7 @@ class  Prep_lidar(Node):
                                                    self.laser_callback, 
                                                    QoSProfile(depth=10, 
                                                               reliability=ReliabilityPolicy.SYSTEM_DEFAULT))
+        self.odomSubscriber = self.create_subscription(Odometry, '/odom', self.odom_callback,QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE))
         
         self.timer_period = 0.50 # 0.50 * 2 # * 10
         self.speed = speed
@@ -31,6 +33,27 @@ class  Prep_lidar(Node):
         self.turnedRecently = False
         self.service_ = self.create_service(SetBool, "activate_robot", self.callback_activate_robot)
         self.turnedRecently = False
+        self.odom = Odometry() 
+        self.starting_position_x = None
+        self.orientation = 1
+        self.position_x = 0
+        self.position_y = 0
+        self.coordinate = (0,0)
+        
+    def odom_callback(self,msg):
+        
+        self.orientation = msg.pose.pose.orientation.w
+        self.position_x = msg.pose.pose.position.x
+        self.position_y = msg.pose.pose.position.y
+        
+        
+
+        if self.starting_position_x is None:
+            self.starting_position_x = msg.pose.pose.position.x
+        self.distance_traveled = abs(msg.pose.pose.position.x - self.starting_position_x)
+
+        return msg.pose.pose.orientation.w
+    
     
     def callback_activate_robot(self, request, response):
         self.activated_ = request.data
@@ -52,19 +75,27 @@ class  Prep_lidar(Node):
 
     def log(self, msg):
         self.get_logger().info(str(msg))
-
+        
+    def isFarEnoughFromPreviousPoint(self):
+        minDistance = 0.4
+        x, y = self.coordinate
+        return abs(self.position_x - x) > minDistance or abs(self.position_y - y) > minDistance
+ 
     def motion(self):
         if self.lidar is None:
             return
-
+        self.log(f"x = {self.position_x}, y = {self.position_y}")
         if self.patrolEngine:
             scanRangeClose = 30
             entryRange = 45
 
-            if self.checkSide(self.lidar.getRangesAroundRight(scanRangeClose), self.lidar.getRangesAroundRight(entryRange)) and not self.turnedRecently:
+            if self.checkSide(self.lidar.getRangesAroundRight(scanRangeClose), 
+                              self.lidar.getRangesAroundRight(entryRange)) \
+                        and self.isFarEnoughFromPreviousPoint():
                 self.navigator.turnRight(90)
                 self.log("------turning-------")
-                self.turnedRecently = True
+                self.last = True
+                self.coordinate = (self.position_x, self.position_y)
             else:
                 self.patrolEngine.motion()
 
