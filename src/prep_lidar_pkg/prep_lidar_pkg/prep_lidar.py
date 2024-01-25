@@ -32,6 +32,8 @@ class  Prep_lidar(Node):
         self.lidar = None
         self.service_ = self.create_service(SetBool, "activate_robot", self.callback_activate_robot)
         
+        self.stopped = False
+        
         self.odom = Odometry() 
         self.starting_position_x = None
         self.orientation = 1
@@ -43,7 +45,14 @@ class  Prep_lidar(Node):
         self.commandListener = self.create_subscription(String, 'patrolCommands', self.callback_commands, 10)
     
     def callback_commands(self, msg):
-        self.log(f"command: {msg.data}")
+        command = msg.data
+        self.log(f"command: {command}")
+        if command == "stop":
+            self.stopped = True
+        elif command == "start":
+            self.stopped = False
+        else:
+            self.log("Unknown command")
         
     def publishEvent(self, eventText):
         self.log(f"Sending event: {eventText}")
@@ -123,8 +132,17 @@ class  Prep_lidar(Node):
     def motion(self):
         if self.lidar is None:
             return
+        
+        if self.stopped:
+            self.navigator.stop()
+            self.log("stop")
+            return
+        else:
+            self.log("go")
+            #self.navigator.go()
+                
         self.lidar.logDistances()
-        self.log(f"x = {self.position_x}, y = {self.position_y}")
+        
         if self.patrolEngine:
             if self.nowWayFurther() and self.isFarEnoughFromPreviousPoint():
                 self.performUTurn()
