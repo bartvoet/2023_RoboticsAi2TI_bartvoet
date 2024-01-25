@@ -33,6 +33,7 @@ class  Prep_lidar(Node):
         self.service_ = self.create_service(SetBool, "activate_robot", self.callback_activate_robot)
         
         self.stopped = False
+        self.moveStateChanged = True
         
         self.odom = Odometry() 
         self.starting_position_x = None
@@ -49,8 +50,10 @@ class  Prep_lidar(Node):
         self.log(f"command: {command}")
         if command == "stop":
             self.stopped = True
+            self.moveStateChanged = True
         elif command == "start":
             self.stopped = False
+            self.moveStateChanged = True
         else:
             self.log("Unknown command")
         
@@ -101,11 +104,14 @@ class  Prep_lidar(Node):
  
     def performUTurn(self):
         self.navigator.turnLeft(180)
-        self.coordinate = (self.position_x, self.position_y)
+        self.coordinate = self.getCurrentPosAsTuple()
         self.publishEvent(f"U-turn at {self.coordinate}")
         
     def logCoordinate(self):
-        self.coordinate = (self.position_x, self.position_y)
+        self.coordinate = self.getCurrentPosAsTuple()
+        
+    def getCurrentPosAsTuple(self):
+        return (self.position_x, self.position_y)
         
     def performRightTurn(self):    
         self.navigator.turnRight(90)
@@ -129,18 +135,22 @@ class  Prep_lidar(Node):
         return self.checkSide(self.lidar.getRangesAroundLeft(scanRangeClose), 
                               self.lidar.getRangesAroundLeft(entryRange))
 
+    def sendIfMoveStateChanged(self, command):
+        if self.moveStateChanged:
+            self.moveStateChanged = False
+            self.publishEvent(f"{command} at {self.getCurrentPosAsTuple()}")
+ 
     def motion(self):
         if self.lidar is None:
             return
         
         if self.stopped:
             self.navigator.stop()
-            self.log("stop")
+            self.sendIfMoveStateChanged("stop")
             return
         else:
-            self.log("go")
-            #self.navigator.go()
-                
+            self.sendIfMoveStateChanged("start")
+        
         self.lidar.logDistances()
         
         if self.patrolEngine:
