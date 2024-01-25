@@ -41,12 +41,9 @@ class  Prep_lidar(Node):
         self.coordinate = (0,0)
         
     def odom_callback(self,msg):
-        
         self.orientation = msg.pose.pose.orientation.w
         self.position_x = msg.pose.pose.position.x
         self.position_y = msg.pose.pose.position.y
-        
-        
 
         if self.starting_position_x is None:
             self.starting_position_x = msg.pose.pose.position.x
@@ -80,16 +77,24 @@ class  Prep_lidar(Node):
         minDistance = 0.4
         x, y = self.coordinate
         return abs(self.position_x - x) > minDistance or abs(self.position_y - y) > minDistance
+    
+    def nowWayFurther(self):
+        return self.lidar.laser_forward < 0.45 and self.lidar.leftDistance < 0.5 and self.lidar.rightDistance < 0.5
  
     def motion(self):
         if self.lidar is None:
             return
+        self.lidar.logDistances()
         self.log(f"x = {self.position_x}, y = {self.position_y}")
         if self.patrolEngine:
             scanRangeClose = 30
             entryRange = 45
 
-            if self.checkSide(self.lidar.getRangesAroundRight(scanRangeClose), 
+            if self.nowWayFurther() and self.isFarEnoughFromPreviousPoint():
+                self.navigator.turnLeft(180)
+                self.coordinate = (self.position_x, self.position_y)
+                self.log("------u-turn-------")
+            elif self.checkSide(self.lidar.getRangesAroundRight(scanRangeClose), 
                               self.lidar.getRangesAroundRight(entryRange)) \
                         and self.isFarEnoughFromPreviousPoint():
                 self.navigator.turnRight(90)
@@ -192,10 +197,10 @@ class PatrolEngine:
        
         if forward > self.slowDownAt:
             self.navigator.goForward(self.speed)
-            if self.lidar.leftDistance < 0.2:
+            if self.lidar.leftDistance < 0.15:
                 self.log(f"l => {self.lidar.leftDistance}")
                 self.navigator.turnRight(degrees=self.degrFactor)
-            elif self.lidar.rightDistance < 0.2:
+            elif self.lidar.rightDistance < 0.15:
                 self.log(f"l => {self.lidar.rightDistance}")
                 self.navigator.turnLeft(degrees=self.degrFactor)
         elif forward >= self.stopAndTurnAt:
