@@ -40,6 +40,10 @@ class  Prep_lidar(Node):
         self.coordinate = (0,0)
         
         self.eventPublisher = self.create_publisher(String, 'patrolEvents', 10)
+        self.commandListener = self.create_subscription(String, 'patrolCommands', self.callback_commands, 10)
+    
+    def callback_commands(self, msg):
+        self.log(f"command: {msg.data}")
         
     def publishEvent(self, eventText):
         self.log(f"Sending event: {eventText}")
