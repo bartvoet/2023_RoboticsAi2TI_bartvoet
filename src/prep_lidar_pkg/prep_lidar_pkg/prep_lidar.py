@@ -87,7 +87,6 @@ class  Prep_lidar(Node):
         sortedCopy.sort(reverse=True)
         topTen = sortedCopy[0:11]
         averageTopTen = self.avg(topTen)
-        self.log(topTen)
         result = list(filter(lambda x: abs(x - averageTopTen) > (averageTopTen * 0.1), topTen))
         
         if averageTopTen < thresholdDistance:
@@ -122,7 +121,7 @@ class  Prep_lidar(Node):
 
 class PatrolEngine:
     def __init__(self, navigator, lidar,  log, speed=PHYSICAL_SPEED,
-                 degrSide=1, adjustSideAt = 0.05, degrFactor=8, slowDownAt = 0.5, stopAndTurnAt = 0.2,
+                 degrSide=1, adjustSideAt = 0.05, degrFactor=8, slowDownAt = 0.5, stopAndTurnAt = 0.3,
                     fowardAngle = 55 ):
         self.navigator = navigator
         self.lidar = lidar
@@ -143,7 +142,7 @@ class PatrolEngine:
         if self.lidar is None or self.navigator is None:
             return
 
-        #self.lidar.logDistances()
+        #elf.lidar.logDistances()
         forward = self.lidar.minRangeFromCenter(self.fowardAngle)
         #self.log(f"new forward: {forward}" )
 
@@ -162,6 +161,12 @@ class PatrolEngine:
        
         if forward > self.slowDownAt:
             self.navigator.goForward(self.speed)
+            if self.lidar.leftDistance < 0.2:
+                self.log(f"l => {self.lidar.leftDistance}")
+                self.navigator.turnRight(degrees=self.degrFactor)
+            elif self.lidar.rightDistance < 0.2:
+                self.log(f"l => {self.lidar.rightDistance}")
+                self.navigator.turnLeft(degrees=self.degrFactor)
         elif forward >= self.stopAndTurnAt:
             self.navigator.goForward(self.speed / 2)
         else:
