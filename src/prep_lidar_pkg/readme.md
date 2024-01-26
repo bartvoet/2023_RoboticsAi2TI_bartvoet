@@ -1,7 +1,10 @@
 # Patrolling and events
 
 Just some info on the basic setup.
-For demo see see documentation [here](demovideo.webm)
+For demo see see the video [here](demovideo.webm)
+
+> When opening from github you must select the raw option (as it's a binary) 
+> and it will open in your browser.
 
 ## Assumption on runtime conditions
 
