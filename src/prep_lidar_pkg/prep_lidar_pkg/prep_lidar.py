@@ -164,8 +164,8 @@ class  Prep_lidar(Node):
                 self.performUTurn()
             elif self.isThereAGapToTheRight() and self.isFarEnoughFromPreviousPoint():
                 self.performRightTurn()
-            elif self.isThereAGapToTheLeft() and self.isFarEnoughFromPreviousPoint():
-                self.performLeftTurn()
+            # elif self.isThereAGapToTheLeft() and self.isFarEnoughFromPreviousPoint():
+            #     self.performLeftTurn()
             else:
                 self.patrolEngine.motion()
 
