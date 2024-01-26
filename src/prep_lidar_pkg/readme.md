@@ -1,6 +1,7 @@
 # Patrolling and events
 
-Just some info on the basic setup
+Just some info on the basic setup.
+For demo see see documentation [here](demovideo.webm)
 
 ## Assumption on runtime conditions
 
